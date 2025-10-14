@@ -1,6 +1,6 @@
 # tig-rs (Rust rewrite scaffold)
 
-This directory hosts a Rust workspace that aims to incrementally rewrite Tig.
+This directory hosts the Rust code for an incremental rewrite of Tig.
 
 Status:
 - Minimal TUI shell using `crossterm` + `ratatui`
@@ -16,12 +16,12 @@ Next steps (not yet implemented):
 
 Build:
 ```
-cd rust && cargo build --workspace
+cargo build --workspace
 ```
 
 Run the CLI from a Git repo:
 ```
-cd rust && cargo run -p tigrs-cli
+cargo run -p tigrs-cli
 ```
 
 Keys

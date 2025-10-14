@@ -37,8 +37,7 @@ tig.spec
 tools/doc-gen
 tig.dSYM
 target
- 
-# Rust workspace (under `rust/`)
-# Keep Cargo.lock for binaries/workspaces; only ignore build artifacts and backups.
-rust/target/
+
+# Rust
+# Keep Cargo.lock tracked (workspace/binary); ignore build artifacts and backups.
 **/*.rs.bk
