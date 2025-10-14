@@ -1,0 +1,13 @@
+[package]
+name = "tigrs-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+crossterm = "0.27"
+ratatui = { version = "0.26", default-features = false, features = ["crossterm"] }
+clap = { version = "4", features = ["derive"] }
+tigrs-core = { path = "../tigrs-core" }
+tigrs-git = { path = "../tigrs-git" }
+git2 = "0.18"
