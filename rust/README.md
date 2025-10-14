@@ -28,3 +28,6 @@ Keys
 - List: Enter open, j/k move, w toggle wrap, q quit
 - Pager: j/k scroll, g/G top/bottom, w toggle wrap, Tab or d/p switch, q back
 - Diff: j/k scroll, g/G top/bottom, w toggle wrap, Tab or d/p switch, q back
+
+Contributing
+- See `rust/CONTRIBUTING.md` for build, test, lint, and PR guidance.
