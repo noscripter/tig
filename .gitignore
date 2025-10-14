@@ -36,3 +36,4 @@ tig-*.tar.gz.sha256
 tig.spec
 tools/doc-gen
 tig.dSYM
+target
