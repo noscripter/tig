@@ -84,7 +84,8 @@ fn run_app(
                     }).collect();
                     let list = List::new(items)
                         .block(Block::default().title("tig-rs — commits").borders(Borders::ALL));
-                    f.render_stateful_widget(list, chunks[0], &mut ratatui::widgets::ListState::default().with_selected(Some(idx)));
+                    let mut state = list_state(Some(idx));
+                    f.render_stateful_widget(list, chunks[0], &mut state);
                 }
                 Mode::Pager { data } => {
                     let footer = Paragraph::new(Span::raw(
@@ -203,15 +204,10 @@ fn run_app(
     Ok(())
 }
 
-trait ListStateExt {
-    fn with_selected(self, selected: Option<usize>) -> Self;
-}
-
-impl ListStateExt for ratatui::widgets::ListState {
-    fn with_selected(mut self, selected: Option<usize>) -> Self {
-        self.select(selected);
-        self
-    }
+fn list_state(selected: Option<usize>) -> ratatui::widgets::ListState {
+    let mut s = ratatui::widgets::ListState::default();
+    s.select(selected);
+    s
 }
 
 enum Mode {
@@ -271,4 +267,3 @@ fn to_diff(mode: &mut Mode) {
         *mode = Mode::Diff { data: data.clone() };
     }
 }
-
