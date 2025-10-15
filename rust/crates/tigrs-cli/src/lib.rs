@@ -387,7 +387,8 @@ impl View<AppState> for ListView {
                                     scroll_pager: 0,
                                     scroll_diff: 0,
                                 };
-                                return Transition::Push(Box::new(PagerView { data }));
+                                // Open Diff view by default so highlighting is visible immediately
+                                return Transition::Push(Box::new(DiffView { data }));
                             }
                         }
                     }
@@ -446,7 +447,7 @@ impl View<AppState> for PagerView {
             match key.code {
                 KeyCode::Char('w') => { state.settings.wrap_lines = !state.settings.wrap_lines; let _ = state.settings.save(); }
                 KeyCode::Char('q') => return Transition::Back,
-                KeyCode::Tab | KeyCode::Char('d') => return Transition::Replace(Box::new(DiffView { data: self.data.clone() })),
+                KeyCode::Tab | KeyCode::Char('d') | KeyCode::Char('D') => return Transition::Replace(Box::new(DiffView { data: self.data.clone() })),
                 KeyCode::Char('p') => { /* already pager */ }
                 KeyCode::Char('j') | KeyCode::Down => { self.data.scroll_pager = self.data.scroll_pager.saturating_add(1); }
                 KeyCode::Char('k') | KeyCode::Up => { self.data.scroll_pager = self.data.scroll_pager.saturating_sub(1); }
@@ -490,7 +491,7 @@ impl View<AppState> for DiffView {
                 KeyCode::Char('w') => { state.settings.wrap_lines = !state.settings.wrap_lines; let _ = state.settings.save(); }
                 KeyCode::Char('y') => { state.settings.syntax_highlight = !state.settings.syntax_highlight; let _ = state.settings.save(); }
                 KeyCode::Char('q') => return Transition::Back,
-                KeyCode::Tab | KeyCode::Char('p') => return Transition::Replace(Box::new(PagerView { data: self.data.clone() })),
+                KeyCode::Tab | KeyCode::Char('p') | KeyCode::Char('P') => return Transition::Replace(Box::new(PagerView { data: self.data.clone() })),
                 KeyCode::Char('d') => { /* already diff */ }
                 KeyCode::Char('j') | KeyCode::Down => { self.data.scroll_diff = self.data.scroll_diff.saturating_add(1); }
                 KeyCode::Char('k') | KeyCode::Up => { self.data.scroll_diff = self.data.scroll_diff.saturating_sub(1); }
