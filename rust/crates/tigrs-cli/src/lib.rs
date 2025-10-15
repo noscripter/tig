@@ -323,8 +323,11 @@ impl View<AppState> for ListView {
             ListItem::new(Line::from(spans))
         }).collect();
         let list = List::new(items)
-            .block(Block::default().title(self.title()).borders(Borders::ALL));
-        let mut selection = list_state(Some(self.idx));
+            .block(Block::default().title(self.title()).borders(Borders::ALL))
+            .highlight_symbol("> ")
+            .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        let selected = if state.commits.is_empty() { None } else { Some(self.idx) };
+        let mut selection = list_state(selected);
         f.render_stateful_widget(list, chunks[0], &mut selection);
     }
     fn on_event(&mut self, ev: &Event, state: &mut AppState) -> Transition<AppState> {
