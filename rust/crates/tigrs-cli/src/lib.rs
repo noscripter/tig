@@ -8,7 +8,7 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Style, Stylize},
+    style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Terminal,
@@ -290,8 +290,31 @@ impl View<AppState> for ListView {
         f.render_widget(footer, chunks[1]);
 
         let items: Vec<ListItem> = state.commits.iter().map(|c| {
-            let line = format!("{} {} — {}", c.id.clone().bold(), c.summary, c.author);
-            ListItem::new(line)
+            let mut spans: Vec<Span> = Vec::new();
+            // ID highlighted
+            let id_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+            spans.push(Span::styled(c.id.clone(), id_style));
+            spans.push(Span::raw(" "));
+
+            // Summary with simple keyword-based coloring
+            let sum_lower = c.summary.to_lowercase();
+            let mut sum_style = Style::default();
+            if sum_lower.starts_with("feat") {
+                sum_style = Style::default().fg(Color::Green);
+            } else if sum_lower.starts_with("fix") {
+                sum_style = Style::default().fg(Color::Red);
+            } else if sum_lower.starts_with("docs") {
+                sum_style = Style::default().fg(Color::Blue);
+            } else if sum_lower.starts_with("refactor") {
+                sum_style = Style::default().fg(Color::Magenta);
+            }
+            spans.push(Span::styled(c.summary.clone(), sum_style));
+
+            // Author dimmed
+            spans.push(Span::raw(" — "));
+            spans.push(Span::styled(c.author.clone(), Style::default().fg(Color::DarkGray)));
+
+            ListItem::new(Line::from(spans))
         }).collect();
         let list = List::new(items)
             .block(Block::default().title(self.title()).borders(Borders::ALL));
