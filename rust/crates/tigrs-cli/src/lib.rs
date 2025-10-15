@@ -226,22 +226,173 @@ struct ViewData {
 }
 
 fn colorize_diff(input: &str) -> Vec<Line<'static>> {
-    input
-        .lines()
-        .map(|l| {
-            if l.starts_with("+++") || l.starts_with("---") || l.starts_with("diff --git") {
-                Line::from(Span::styled(l.to_string(), Style::new().bold()))
-            } else if l.starts_with("@@") {
-                Line::from(Span::styled(l.to_string(), Style::new().yellow()))
-            } else if l.starts_with('+') {
-                Line::from(Span::styled(l.to_string(), Style::new().green()))
-            } else if l.starts_with('-') {
-                Line::from(Span::styled(l.to_string(), Style::new().red()))
-            } else {
-                Line::from(Span::raw(l.to_string()))
+    let mut lang: Option<String> = None;
+    let mut out = Vec::new();
+    for l in input.lines() {
+        if l.starts_with("diff --git ") {
+            out.push(Line::from(Span::styled(l.to_string(), Style::new().bold())));
+            continue;
+        }
+        if l.starts_with("+++") || l.starts_with("---") {
+            // Try to infer language from file path (b/<path> or a/<path>)
+            if let Some(path) = l.split_whitespace().nth(1) {
+                // strip a/ or b/
+                let p = path.trim_start_matches("a/").trim_start_matches("b/");
+                if let Some(ext) = p.rsplit('.').next() {
+                    lang = Some(ext.to_string());
+                }
             }
-        })
-        .collect()
+            out.push(Line::from(Span::styled(l.to_string(), Style::new().bold())));
+            continue;
+        }
+        if l.starts_with("@@") {
+            out.push(Line::from(Span::styled(l.to_string(), Style::new().yellow())));
+            continue;
+        }
+
+        // Content lines
+        if let Some(rest) = l.strip_prefix('+') {
+            let mut spans = Vec::new();
+            spans.push(Span::styled("+".to_string(), Style::new().green()));
+            spans.extend(highlight_code(rest, lang.as_deref()));
+            out.push(Line::from(spans));
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix('-') {
+            let mut spans = Vec::new();
+            spans.push(Span::styled("-".to_string(), Style::new().red()));
+            spans.extend(highlight_code(rest, lang.as_deref()));
+            out.push(Line::from(spans));
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix(' ') {
+            let mut spans = Vec::new();
+            spans.push(Span::raw(" ".to_string()));
+            spans.extend(highlight_code(rest, lang.as_deref()));
+            out.push(Line::from(spans));
+            continue;
+        }
+
+        // Fallback raw line
+        out.push(Line::from(Span::raw(l.to_string())));
+    }
+    out
+}
+
+fn highlight_code(line: &str, ext: Option<&str>) -> Vec<Span<'static>> {
+    match ext.unwrap_or("") {
+        "rs" => highlight_with_rules(line, Lang::Rust),
+        "c" | "h" | "hpp" | "hh" | "cpp" | "cc" | "cxx" => highlight_with_rules(line, Lang::Cfamily),
+        "py" => highlight_with_rules(line, Lang::Python),
+        "js" | "jsx" | "ts" | "tsx" => highlight_with_rules(line, Lang::JsTs),
+        "go" => highlight_with_rules(line, Lang::Go),
+        "sh" | "bash" | "zsh" => highlight_with_rules(line, Lang::Shell),
+        _ => vec![Span::raw(line.to_string())],
+    }
+}
+
+#[derive(Copy, Clone)]
+enum Lang { Rust, Cfamily, Python, JsTs, Go, Shell }
+
+fn highlight_with_rules(line: &str, lang: Lang) -> Vec<Span<'static>> {
+    // Simple, single-line highlighter: strings, comments, keywords, numbers.
+    // Comments (//, #) take precedence over keyword/number highlighting.
+    // Strings are highlighted as a whole; no escapes handling.
+    let (comment_start, comment_marker) = match lang {
+        Lang::Python | Lang::Shell => (line.find('#'), '#'),
+        _ => (line.find("//"), '/'),
+    };
+
+    let (code_part, comment_part) = match comment_start {
+        Some(idx) => (&line[..idx], Some(&line[idx..])),
+        None => (line, None),
+    };
+
+    let mut spans = Vec::new();
+    spans.extend(highlight_code_tokens(code_part, lang));
+    if let Some(comment) = comment_part {
+        // Color comments faintly using blue to stand out
+        spans.push(Span::styled(comment.to_string(), Style::new().blue()));
+    }
+    spans
+}
+
+fn is_ident_char(c: char) -> bool { c.is_ascii_alphanumeric() || c == '_' }
+
+fn highlight_code_tokens(s: &str, lang: Lang) -> Vec<Span<'static>> {
+    let keywords: &'static [&'static str] = match lang {
+        Lang::Rust => &[
+            "as","break","const","continue","crate","else","enum","extern","false","fn","for","if","impl","in","let","loop","match","mod","move","mut","pub","ref","return","self","Self","static","struct","super","trait","true","type","unsafe","use","where","while","async","await","dyn",
+        ],
+        Lang::Cfamily => &[
+            "auto","break","case","char","const","continue","default","do","double","else","enum","extern","float","for","goto","if","inline","int","long","register","restrict","return","short","signed","sizeof","static","struct","switch","typedef","union","unsigned","void","volatile","while","namespace","class","template","typename","using","public","private","protected","virtual","override","constexpr","nullptr","true","false",
+        ],
+        Lang::Python => &[
+            "False","None","True","and","as","assert","async","await","break","class","continue","def","del","elif","else","except","finally","for","from","global","if","import","in","is","lambda","nonlocal","not","or","pass","raise","return","try","while","with","yield",
+        ],
+        Lang::JsTs => &[
+            "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","finally","for","function","if","import","in","instanceof","let","new","return","super","switch","this","throw","try","typeof","var","void","while","with","yield","await","async","enum","interface","type","implements","true","false",
+        ],
+        Lang::Go => &[
+            "break","case","chan","const","continue","default","defer","else","fallthrough","for","func","go","goto","if","import","interface","map","package","range","return","select","struct","switch","type","var","true","false","iota",
+        ],
+        Lang::Shell => &[
+            "if","then","else","elif","fi","for","in","do","done","case","esac","while","until","function","select","time","coproc","true","false",
+        ],
+    };
+
+    let mut spans = Vec::new();
+    let mut i = 0usize;
+    let bytes = s.as_bytes();
+    while i < bytes.len() {
+        let c = s[i..].chars().next().unwrap();
+        // Strings
+        if c == '"' || (c == '\'' && !matches!(lang, Lang::Rust | Lang::Cfamily)) {
+            let quote = c;
+            let mut j = i + c.len_utf8();
+            while j < bytes.len() {
+                let ch = s[j..].chars().next().unwrap();
+                let prev = if j > 0 { s[..j].chars().last().unwrap_or('\0') } else { '\0' };
+                let end = ch == quote && prev != '\\';
+                j += ch.len_utf8();
+                if end { break; }
+            }
+            spans.push(Span::styled(s[i..j].to_string(), Style::new().yellow()));
+            i = j;
+            continue;
+        }
+        // Numbers
+        if c.is_ascii_digit() {
+            let mut j = i + c.len_utf8();
+            while j < bytes.len() {
+                let ch = s[j..].chars().next().unwrap();
+                if ch.is_ascii_digit() || ch == '.' { j += ch.len_utf8(); } else { break; }
+            }
+            spans.push(Span::styled(s[i..j].to_string(), Style::new().cyan()));
+            i = j;
+            continue;
+        }
+        // Identifiers and keywords
+        if is_ident_char(c) {
+            let mut j = i + c.len_utf8();
+            while j < bytes.len() {
+                let ch = s[j..].chars().next().unwrap();
+                if is_ident_char(ch) { j += ch.len_utf8(); } else { break; }
+            }
+            let tok = &s[i..j];
+            if keywords.contains(&tok) {
+                spans.push(Span::styled(tok.to_string(), Style::new().magenta()));
+            } else {
+                spans.push(Span::raw(tok.to_string()));
+            }
+            i = j;
+            continue;
+        }
+        // Whitespace or punct
+        spans.push(Span::raw(c.to_string()));
+        i += c.len_utf8();
+    }
+    spans
 }
 
 fn toggle_view(mode: &mut Mode) {
