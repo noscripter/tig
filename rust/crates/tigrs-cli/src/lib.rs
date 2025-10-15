@@ -280,14 +280,20 @@ impl View<AppState> for ListView {
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
-        let footer = Paragraph::new(Span::raw(
-            format!(
-                "Enter: open  q: quit  j/k: move  w: wrap={}  {} commits",
-                if state.settings.wrap_lines { "on" } else { "off" },
-                state.commits.len()
-            ),
-        ));
-        f.render_widget(footer, chunks[1]);
+        // Colored footer
+        let mut fs = Vec::new();
+        fs.push(Span::styled("Enter", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": open  "));
+        fs.push(Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": quit  "));
+        fs.push(Span::styled("j/k", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": move  "));
+        fs.push(Span::styled("w", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(format!(": wrap={}  ", if state.settings.wrap_lines { "on" } else { "off" })));
+        fs.push(Span::styled("y", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(format!(": syn={}  ", if state.settings.syntax_highlight { "on" } else { "off" })));
+        fs.push(Span::raw(format!("{} commits", state.commits.len())));
+        f.render_widget(Paragraph::new(Line::from(fs)), chunks[1]);
 
         let items: Vec<ListItem> = state.commits.iter().map(|c| {
             let mut spans: Vec<Span> = Vec::new();
@@ -352,6 +358,10 @@ impl View<AppState> for ListView {
                 KeyCode::Char('k') | KeyCode::Up => {
                     self.idx = self.idx.saturating_sub(1);
                 }
+                KeyCode::Char('y') => {
+                    state.settings.syntax_highlight = !state.settings.syntax_highlight;
+                    let _ = state.settings.save();
+                }
                 _ => {}
             }
         }
@@ -367,8 +377,21 @@ impl View<AppState> for PagerView {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
-        let footer = Paragraph::new(Span::raw("q: back  j/k: scroll  g/G: top/bottom  w: wrap  Tab/p/d: switch"));
-        f.render_widget(footer, chunks[1]);
+        // Colored footer
+        let mut fs = Vec::new();
+        fs.push(Span::styled("q", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": back  "));
+        fs.push(Span::styled("j/k", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": scroll  "));
+        fs.push(Span::styled("g/G", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": top/bottom  "));
+        fs.push(Span::styled("w", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(format!(": wrap={}  ", if state.settings.wrap_lines { "on" } else { "off" })));
+        fs.push(Span::styled("y", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(format!(": syn={}  ", if state.settings.syntax_highlight { "on" } else { "off" })));
+        fs.push(Span::styled("Tab/p/d", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+        fs.push(Span::raw(": switch"));
+        f.render_widget(Paragraph::new(Line::from(fs)), chunks[1]);
 
         let block = Block::default().title(self.title()).borders(Borders::ALL);
         let mut para = Paragraph::new(self.data.content.as_str()).block(block);
@@ -408,7 +431,11 @@ impl View<AppState> for DiffView {
         f.render_widget(footer, chunks[1]);
 
         let block = Block::default().title(self.title()).borders(Borders::ALL);
-        let mut para = Paragraph::new(self.data.lines.clone()).block(block);
+        let mut para = if state.settings.syntax_highlight {
+            Paragraph::new(self.data.lines.clone())
+        } else {
+            Paragraph::new(self.data.content.as_str())
+        }.block(block);
         if state.settings.wrap_lines {
             para = para.wrap(ratatui::widgets::Wrap { trim: false });
         }
@@ -419,6 +446,7 @@ impl View<AppState> for DiffView {
         if let Event::Key(key) = ev {
             match key.code {
                 KeyCode::Char('w') => { state.settings.wrap_lines = !state.settings.wrap_lines; let _ = state.settings.save(); }
+                KeyCode::Char('y') => { state.settings.syntax_highlight = !state.settings.syntax_highlight; let _ = state.settings.save(); }
                 KeyCode::Char('q') => return Transition::Back,
                 KeyCode::Tab | KeyCode::Char('p') => return Transition::Replace(Box::new(PagerView { data: self.data.clone() })),
                 KeyCode::Char('d') => { /* already diff */ }

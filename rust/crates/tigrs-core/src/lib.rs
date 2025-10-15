@@ -4,13 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
     pub wrap_lines: bool,
+    pub syntax_highlight: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { wrap_lines: false }
+        Self { wrap_lines: false, syntax_highlight: true }
     }
 }
 
@@ -46,4 +48,3 @@ fn config_path() -> Option<PathBuf> {
     dir.push("config.toml");
     Some(dir)
 }
-
