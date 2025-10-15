@@ -7,7 +7,7 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Style, Stylize},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
@@ -16,6 +16,7 @@ use ratatui::{
 use std::io::{self, stdout};
 use tigrs_core::Settings;
 use tigrs_git::{discover_repo, recent_commits, commit_diff_text, oid_from_str, CommitInfo};
+use tigrs_tui::{Router, Transition, View, TuiFrame};
 
 #[derive(Debug, Parser)]
 #[command(name = "tig-rs", version, about = "Experimental Rust rewrite scaffold for Tig")]
@@ -55,150 +56,22 @@ pub fn run() -> Result<()> {
 fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     commits: Vec<CommitInfo>,
-    mut settings: Settings,
+    settings: Settings,
     repo: Option<git2::Repository>,
 ) -> Result<()> {
-    let mut idx: usize = 0;
-    let mut mode = Mode::List;
+    let mut state = AppState { settings, repo, commits };
+    let root: Box<dyn View<AppState>> = Box::new(ListView { idx: 0 });
+    let mut router = Router::new(root);
 
     loop {
         terminal.draw(|f| {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Min(1),
-                    Constraint::Length(1),
-                ])
-                .split(f.size());
-
-            match &mode {
-                Mode::List => {
-                    let footer = Paragraph::new(Span::raw(
-                        format!("Enter: open  q: quit  j/k: move  w: wrap={}  {} commits", if settings.wrap_lines { "on" } else { "off" }, commits.len()),
-                    ));
-                    f.render_widget(footer, chunks[1]);
-
-                    let items: Vec<ListItem> = commits.iter().map(|c| {
-                        let line = format!("{} {} — {}", c.id.clone().bold(), c.summary, c.author);
-                        ListItem::new(line)
-                    }).collect();
-                    let list = List::new(items)
-                        .block(Block::default().title("tig-rs — commits").borders(Borders::ALL));
-                    let mut state = list_state(Some(idx));
-                    f.render_stateful_widget(list, chunks[0], &mut state);
-                }
-                Mode::Pager { data } => {
-                    let footer = Paragraph::new(Span::raw(
-                        "q: back  j/k: scroll  g/G: top/bottom  w: wrap  Tab/p/d: switch",
-                    ));
-                    f.render_widget(footer, chunks[1]);
-
-                    let block = Block::default().title(data.title.as_str()).borders(Borders::ALL);
-                    let mut para = Paragraph::new(data.content.as_str()).block(block);
-                    if settings.wrap_lines {
-                        para = para.wrap(ratatui::widgets::Wrap { trim: false });
-                    }
-                    para = para.scroll((data.scroll_pager, 0));
-                    f.render_widget(para, chunks[0]);
-                }
-                Mode::Diff { data } => {
-                    let footer = Paragraph::new(Span::raw(
-                        "q: back  j/k: scroll  g/G: top/bottom  w: wrap  Tab/p/d: switch",
-                    ));
-                    f.render_widget(footer, chunks[1]);
-
-                    let block = Block::default().title(data.title.as_str()).borders(Borders::ALL);
-                    let mut para = Paragraph::new(data.lines.clone()).block(block);
-                    if settings.wrap_lines {
-                        para = para.wrap(ratatui::widgets::Wrap { trim: false });
-                    }
-                    para = para.scroll((data.scroll_diff, 0));
-                    f.render_widget(para, chunks[0]);
-                }
-            }
+            let area = f.size();
+            router.render(f, area, &state);
         })?;
 
         if event::poll(std::time::Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => match key.code {
-                    KeyCode::Char('w') => {
-                        settings.wrap_lines = !settings.wrap_lines;
-                        let _ = settings.save();
-                    }
-                    KeyCode::Char('q') => {
-                        match &mode {
-                            Mode::List => break,
-                            Mode::Pager { .. } | Mode::Diff { .. } => mode = Mode::List,
-                        }
-                    }
-                    KeyCode::Enter => {
-                        if let Mode::List = mode {
-                            if let Some(repo) = repo.as_ref() {
-                                if let Some(commit) = commits.get(idx) {
-                                    if let Ok(oid) = oid_from_str(repo, &commit.full_id) {
-                                        if let Ok(text) = commit_diff_text(repo, oid) {
-                                            let title = format!("{} {}", commit.id, commit.summary);
-                                            let data = ViewData {
-                                                title,
-                                                content: text.clone(),
-                                                lines: colorize_diff(&text),
-                                                scroll_pager: 0,
-                                                scroll_diff: 0,
-                                            };
-                                            mode = Mode::Pager { data: Box::new(data) };
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Tab => {
-                        toggle_view(&mut mode);
-                    }
-                    KeyCode::Char('p') => {
-                        to_pager(&mut mode);
-                    }
-                    KeyCode::Char('d') => {
-                        to_diff(&mut mode);
-                    }
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        match &mut mode {
-                            Mode::List => {
-                                idx = idx.saturating_add(1).min(commits.len().saturating_sub(1));
-                            }
-                            Mode::Pager { data } => {
-                                data.scroll_pager = data.scroll_pager.saturating_add(1);
-                            }
-                            Mode::Diff { data } => {
-                                data.scroll_diff = data.scroll_diff.saturating_add(1);
-                            }
-                        }
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        match &mut mode {
-                            Mode::List => idx = idx.saturating_sub(1),
-                            Mode::Pager { data } => data.scroll_pager = data.scroll_pager.saturating_sub(1),
-                            Mode::Diff { data } => data.scroll_diff = data.scroll_diff.saturating_sub(1),
-                        }
-                    }
-                    KeyCode::Char('g') => {
-                        match &mut mode {
-                            Mode::Pager { data } => data.scroll_pager = 0,
-                            Mode::Diff { data } => data.scroll_diff = 0,
-                            _ => {}
-                        }
-                    }
-                    KeyCode::Char('G') => {
-                        match &mut mode {
-                            Mode::Pager { data } => data.scroll_pager = u16::MAX,
-                            Mode::Diff { data } => data.scroll_diff = u16::MAX,
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
+            let ev = event::read()?;
+            if router.handle_event(&ev, &mut state) { break; }
         }
     }
     Ok(())
@@ -208,12 +81,6 @@ fn list_state(selected: Option<usize>) -> ratatui::widgets::ListState {
     let mut s = ratatui::widgets::ListState::default();
     s.select(selected);
     s
-}
-
-enum Mode {
-    List,
-    Pager { data: Box<ViewData> },
-    Diff { data: Box<ViewData> },
 }
 
 #[derive(Clone)]
@@ -395,26 +262,150 @@ fn highlight_code_tokens(s: &str, lang: Lang) -> Vec<Span<'static>> {
     spans
 }
 
-fn toggle_view(mode: &mut Mode) {
-    match mode {
-        Mode::Pager { data } => {
-            *mode = Mode::Diff { data: data.clone() };
+// ----------------- App State and Views (router-based) -----------------
+
+struct AppState {
+    settings: Settings,
+    repo: Option<git2::Repository>,
+    commits: Vec<CommitInfo>,
+}
+
+struct ListView { idx: usize }
+impl View<AppState> for ListView {
+    fn title(&self) -> String { "tig-rs — commits".into() }
+    fn render(&mut self, f: &mut TuiFrame<'_>, area: Rect, state: &AppState) {
+        // Layout: content + footer (1 line)
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+
+        let footer = Paragraph::new(Span::raw(
+            format!(
+                "Enter: open  q: quit  j/k: move  w: wrap={}  {} commits",
+                if state.settings.wrap_lines { "on" } else { "off" },
+                state.commits.len()
+            ),
+        ));
+        f.render_widget(footer, chunks[1]);
+
+        let items: Vec<ListItem> = state.commits.iter().map(|c| {
+            let line = format!("{} {} — {}", c.id.clone().bold(), c.summary, c.author);
+            ListItem::new(line)
+        }).collect();
+        let list = List::new(items)
+            .block(Block::default().title(self.title()).borders(Borders::ALL));
+        let mut selection = list_state(Some(self.idx));
+        f.render_stateful_widget(list, chunks[0], &mut selection);
+    }
+    fn on_event(&mut self, ev: &Event, state: &mut AppState) -> Transition<AppState> {
+        if let Event::Key(key) = ev {
+            match key.code {
+                KeyCode::Char('w') => {
+                    state.settings.wrap_lines = !state.settings.wrap_lines;
+                    let _ = state.settings.save();
+                }
+                KeyCode::Char('q') => return Transition::Quit,
+                KeyCode::Enter => {
+                    if let (Some(repo), Some(commit)) = (state.repo.as_ref(), state.commits.get(self.idx)) {
+                        if let Ok(oid) = oid_from_str(repo, &commit.full_id) {
+                            if let Ok(text) = commit_diff_text(repo, oid) {
+                                let title = format!("{} {}", commit.id, commit.summary);
+                                let data = ViewData {
+                                    title,
+                                    content: text.clone(),
+                                    lines: colorize_diff(&text),
+                                    scroll_pager: 0,
+                                    scroll_diff: 0,
+                                };
+                                return Transition::Push(Box::new(PagerView { data }));
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.idx = self.idx.saturating_add(1).min(state.commits.len().saturating_sub(1));
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.idx = self.idx.saturating_sub(1);
+                }
+                _ => {}
+            }
         }
-        Mode::Diff { data } => {
-            *mode = Mode::Pager { data: data.clone() };
-        }
-        _ => {}
+        Transition::None
     }
 }
 
-fn to_pager(mode: &mut Mode) {
-    if let Mode::Diff { data } = mode {
-        *mode = Mode::Pager { data: data.clone() };
+struct PagerView { data: ViewData }
+impl View<AppState> for PagerView {
+    fn title(&self) -> String { self.data.title.clone() }
+    fn render(&mut self, f: &mut TuiFrame<'_>, area: Rect, state: &AppState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        let footer = Paragraph::new(Span::raw("q: back  j/k: scroll  g/G: top/bottom  w: wrap  Tab/p/d: switch"));
+        f.render_widget(footer, chunks[1]);
+
+        let block = Block::default().title(self.title()).borders(Borders::ALL);
+        let mut para = Paragraph::new(self.data.content.as_str()).block(block);
+        if state.settings.wrap_lines {
+            para = para.wrap(ratatui::widgets::Wrap { trim: false });
+        }
+        para = para.scroll((self.data.scroll_pager, 0));
+        f.render_widget(para, chunks[0]);
+    }
+    fn on_event(&mut self, ev: &Event, state: &mut AppState) -> Transition<AppState> {
+        if let Event::Key(key) = ev {
+            match key.code {
+                KeyCode::Char('w') => { state.settings.wrap_lines = !state.settings.wrap_lines; let _ = state.settings.save(); }
+                KeyCode::Char('q') => return Transition::Back,
+                KeyCode::Tab | KeyCode::Char('d') => return Transition::Replace(Box::new(DiffView { data: self.data.clone() })),
+                KeyCode::Char('p') => { /* already pager */ }
+                KeyCode::Char('j') | KeyCode::Down => { self.data.scroll_pager = self.data.scroll_pager.saturating_add(1); }
+                KeyCode::Char('k') | KeyCode::Up => { self.data.scroll_pager = self.data.scroll_pager.saturating_sub(1); }
+                KeyCode::Char('g') => { self.data.scroll_pager = 0; }
+                KeyCode::Char('G') => { self.data.scroll_pager = u16::MAX; }
+                _ => {}
+            }
+        }
+        Transition::None
     }
 }
 
-fn to_diff(mode: &mut Mode) {
-    if let Mode::Pager { data } = mode {
-        *mode = Mode::Diff { data: data.clone() };
+struct DiffView { data: ViewData }
+impl View<AppState> for DiffView {
+    fn title(&self) -> String { self.data.title.clone() }
+    fn render(&mut self, f: &mut TuiFrame<'_>, area: Rect, state: &AppState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(area);
+        let footer = Paragraph::new(Span::raw("q: back  j/k: scroll  g/G: top/bottom  w: wrap  Tab/p/d: switch"));
+        f.render_widget(footer, chunks[1]);
+
+        let block = Block::default().title(self.title()).borders(Borders::ALL);
+        let mut para = Paragraph::new(self.data.lines.clone()).block(block);
+        if state.settings.wrap_lines {
+            para = para.wrap(ratatui::widgets::Wrap { trim: false });
+        }
+        para = para.scroll((self.data.scroll_diff, 0));
+        f.render_widget(para, chunks[0]);
+    }
+    fn on_event(&mut self, ev: &Event, state: &mut AppState) -> Transition<AppState> {
+        if let Event::Key(key) = ev {
+            match key.code {
+                KeyCode::Char('w') => { state.settings.wrap_lines = !state.settings.wrap_lines; let _ = state.settings.save(); }
+                KeyCode::Char('q') => return Transition::Back,
+                KeyCode::Tab | KeyCode::Char('p') => return Transition::Replace(Box::new(PagerView { data: self.data.clone() })),
+                KeyCode::Char('d') => { /* already diff */ }
+                KeyCode::Char('j') | KeyCode::Down => { self.data.scroll_diff = self.data.scroll_diff.saturating_add(1); }
+                KeyCode::Char('k') | KeyCode::Up => { self.data.scroll_diff = self.data.scroll_diff.saturating_sub(1); }
+                KeyCode::Char('g') => { self.data.scroll_diff = 0; }
+                KeyCode::Char('G') => { self.data.scroll_diff = u16::MAX; }
+                _ => {}
+            }
+        }
+        Transition::None
     }
 }

@@ -11,3 +11,4 @@ clap = { version = "4", features = ["derive"] }
 tigrs-core = { path = "../tigrs-core" }
 tigrs-git = { path = "../tigrs-git" }
 git2 = "0.18"
+tigrs-tui = { path = "../tigrs-tui" }

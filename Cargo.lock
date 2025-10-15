@@ -941,6 +941,7 @@ dependencies = [
  "ratatui",
  "tigrs-core",
  "tigrs-git",
+ "tigrs-tui",
 ]
 
 [[package]]
@@ -960,6 +961,14 @@ dependencies = [
  "anyhow",
  "git2",
  "time",
+]
+
+[[package]]
+name = "tigrs-tui"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "ratatui",
 ]
 
 [[package]]
