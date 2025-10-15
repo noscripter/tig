@@ -146,6 +146,43 @@ fn colorize_diff(input: &str) -> Vec<Line<'static>> {
     out
 }
 
+fn colorize_diff_basic(input: &str) -> Vec<Line<'static>> {
+    let mut out = Vec::new();
+    for l in input.lines() {
+        if l.starts_with("diff --git ") || l.starts_with("+++") || l.starts_with("---") {
+            out.push(Line::from(Span::styled(l.to_string(), Style::new().bold())));
+            continue;
+        }
+        if l.starts_with("@@") {
+            out.push(Line::from(Span::styled(l.to_string(), Style::new().yellow())));
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix('+') {
+            out.push(Line::from(vec![
+                Span::styled("+".to_string(), Style::new().green()),
+                Span::raw(rest.to_string()),
+            ]));
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix('-') {
+            out.push(Line::from(vec![
+                Span::styled("-".to_string(), Style::new().red()),
+                Span::raw(rest.to_string()),
+            ]));
+            continue;
+        }
+        if let Some(rest) = l.strip_prefix(' ') {
+            out.push(Line::from(vec![
+                Span::raw(" ".to_string()),
+                Span::raw(rest.to_string()),
+            ]));
+            continue;
+        }
+        out.push(Line::from(Span::raw(l.to_string())));
+    }
+    out
+}
+
 fn highlight_code(line: &str, ext: Option<&str>) -> Vec<Span<'static>> {
     match ext.unwrap_or("") {
         "rs" => highlight_with_rules(line, Lang::Rust),
@@ -434,11 +471,13 @@ impl View<AppState> for DiffView {
         f.render_widget(footer, chunks[1]);
 
         let block = Block::default().title(self.title()).borders(Borders::ALL);
-        let mut para = if state.settings.syntax_highlight {
-            Paragraph::new(self.data.lines.clone())
+        // Always color diff headers and +/-; add code syntax when enabled
+        let lines = if state.settings.syntax_highlight {
+            self.data.lines.clone()
         } else {
-            Paragraph::new(self.data.content.as_str())
-        }.block(block);
+            colorize_diff_basic(&self.data.content)
+        };
+        let mut para = Paragraph::new(lines).block(block);
         if state.settings.wrap_lines {
             para = para.wrap(ratatui::widgets::Wrap { trim: false });
         }
