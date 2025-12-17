@@ -29,4 +29,10 @@ _tig () {
     . $e
     functions[__git_complete]="$old"
   fi
+
+  # Finish the completion on the first tab press (otherwise this wrapper only
+  # initializes the definitions and users need to retry completion).
+  if (( $+functions[__tig_main] )); then
+    _git
+  fi
 }
