@@ -11,29 +11,61 @@
 #
 #  fpath=(~/.zsh $fpath)
 #
+# If your Tig bash completion file is installed elsewhere (often as `tig` in a
+# bash-completion completions directory), you can point this wrapper to it:
+#
+#  zstyle ':completion:*:*:tig:*' script /path/to/tig
+#
 # You also need Git's Zsh completion installed:
 #
 # https://github.com/felipec/git-completion/blob/master/git-completion.zsh
 
 
 _tig () {
-  local e dir
+  local e dir script bash_completion
+  local -a locations
 
-  dir=$(dirname ${funcsourcetrace[1]%:*})
+  dir=$(dirname "${funcsourcetrace[1]%:*}")
 
-  e=$dir/tig-completion.bash
-  if [ -f $e ]; then
-    # Temporarily override __git_complete so the bash script doesn't complain
-    local old="$functions[__git_complete]"
-    functions[__git_complete]=:
-    . $e
-    functions[__git_complete]="$old"
+  zstyle -s ":completion:*:*:tig:*" script script
+  if [ -n "$script" ]; then
+    locations=("$script")
+  else
+    bash_completion=$(pkg-config --variable=completionsdir bash-completion 2>/dev/null) ||
+      bash_completion='/usr/share/bash-completion/completions/'
+
+    locations=(
+      "$dir/tig-completion.bash"
+      "$dir/tig"
+      "$HOME/.local/share/bash-completion/completions/tig"
+      "$bash_completion/tig"
+      "/opt/homebrew/share/bash-completion/completions/tig"
+      "/usr/local/share/bash-completion/completions/tig"
+      "/opt/homebrew/etc/bash_completion.d/tig"
+      "/usr/local/etc/bash_completion.d/tig"
+      '/etc/bash_completion.d/tig' # old debian
+    )
   fi
+
+  for e in "${locations[@]}"; do
+    if [ -f "$e" ]; then
+      # Temporarily override __git_complete so the bash script doesn't complain
+      local old="$functions[__git_complete]"
+      functions[__git_complete]=:
+      . "$e"
+      if [ -n "$old" ]; then
+        functions[__git_complete]="$old"
+      else
+        unfunction __git_complete 2>/dev/null
+      fi
+      break
+    fi
+  done
 
   # tig-completion.bash is written against Git's bash completion and expects
   # the git-completion.zsh wrapper (felipec). Most Zsh setups ship a native
   # `_git` completion, so try to bootstrap the wrapper when needed.
-  if ! (( $+functions[__git_complete_command] )); then
+  if (( $+functions[__tig_main] )) && ! (( $+functions[__git_complete_command] )); then
     local cand old_git_def old_git_was_autoload=0
 
     case "$(whence -v _git 2>/dev/null)" in
@@ -69,7 +101,7 @@ _tig () {
   fi
 
   # Finish the completion on the first tab press.
-  if (( $+functions[__git_complete_command] )); then
+  if (( $+functions[__tig_main] )) && (( $+functions[__git_complete_command] )); then
     compdef _git tig
     _git
   else

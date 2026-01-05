@@ -62,10 +62,15 @@ rebuilt its completion cache:
 	$ cp contrib/tig-completion.zsh ~/.zsh/completions/_tig
 	$ cp contrib/tig-completion.bash ~/.zsh/completions/tig-completion.bash
 
-Then add to `~/.zshrc` (both files must be in the same directory):
+Then add to `~/.zshrc` (recommended: keep both files in the same directory):
 
 	fpath=(~/.zsh/completions $fpath)
 	autoload -Uz compinit && compinit
+
+If your system already provides Tig's bash completion (often installed as `tig` in
+the bash-completion completions directory), you can point the Zsh wrapper to it:
+
+	zstyle ':completion:*:*:tig:*' script /path/to/tig
 
 If you previously ran `compinit`, remove the cached dump and re-run it:
 
