@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "rust/crates/tigrs-core",
+    "rust/crates/tigrs-git",
+    "rust/crates/tigrs-cli",
+    "rust/crates/tigrs-tui",
+]
+resolver = "2"

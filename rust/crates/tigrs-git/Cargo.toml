@@ -1,0 +1,10 @@
+[package]
+name = "tigrs-git"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+git2 = "0.18"
+time = { version = "0.3", features = ["formatting"] }
+

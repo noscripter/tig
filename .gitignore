@@ -36,3 +36,8 @@ tig-*.tar.gz.sha256
 tig.spec
 tools/doc-gen
 tig.dSYM
+target
+
+# Rust
+# Keep Cargo.lock tracked (workspace/binary); ignore build artifacts and backups.
+**/*.rs.bk
