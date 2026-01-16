@@ -60,7 +60,7 @@ fn run_app(
     repo: Option<git2::Repository>,
 ) -> Result<()> {
     let mut state = AppState { settings, repo, commits };
-    let root: Box<dyn View<AppState>> = Box::new(ListView { idx: 0 });
+    let root: Box<dyn View<AppState>> = Box::new(ListView { idx: 0, preview: None, preview_id: None });
     let mut router = Router::new(root);
 
     loop {
@@ -307,15 +307,70 @@ struct AppState {
     commits: Vec<CommitInfo>,
 }
 
-struct ListView { idx: usize }
+struct ListView {
+    idx: usize,
+    preview: Option<ViewData>,
+    preview_id: Option<String>,
+}
+
+impl ListView {
+    fn update_preview(&mut self, state: &AppState) {
+        let Some(commit) = state.commits.get(self.idx) else {
+            self.preview = Some(ViewData {
+                title: "Details".to_string(),
+                content: "No commits found.".to_string(),
+                lines: vec![Line::from(Span::raw("No commits found."))],
+                scroll_pager: 0,
+                scroll_diff: 0,
+            });
+            self.preview_id = None;
+            return;
+        };
+
+        let Some(repo) = state.repo.as_ref() else {
+            self.preview = Some(ViewData {
+                title: "Details".to_string(),
+                content: "No repository found.".to_string(),
+                lines: vec![Line::from(Span::raw("No repository found."))],
+                scroll_pager: 0,
+                scroll_diff: 0,
+            });
+            self.preview_id = None;
+            return;
+        };
+
+        if self.preview_id.as_deref() == Some(commit.full_id.as_str()) {
+            return;
+        }
+
+        let text = match oid_from_str(repo, &commit.full_id)
+            .and_then(|oid| commit_diff_text(repo, oid)) {
+            Ok(text) => text,
+            Err(err) => format!("Failed to load diff for {}\n{err}", commit.full_id),
+        };
+        self.preview = Some(ViewData {
+            title: format!("{} {}", commit.id, commit.summary),
+            content: text.clone(),
+            lines: colorize_diff(&text),
+            scroll_pager: 0,
+            scroll_diff: 0,
+        });
+        self.preview_id = Some(commit.full_id.clone());
+    }
+}
 impl View<AppState> for ListView {
     fn title(&self) -> String { "tig-rs — commits".into() }
     fn render(&mut self, f: &mut TuiFrame<'_>, area: Rect, state: &AppState) {
+        self.update_preview(state);
         // Layout: content + footer (1 line)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
+        let body_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(45), Constraint::Percentage(55)])
+            .split(chunks[0]);
 
         // Colored footer
         let mut fs = Vec::new();
@@ -365,7 +420,30 @@ impl View<AppState> for ListView {
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
         let selected = if state.commits.is_empty() { None } else { Some(self.idx) };
         let mut selection = list_state(selected);
-        f.render_stateful_widget(list, chunks[0], &mut selection);
+        f.render_stateful_widget(list, body_chunks[0], &mut selection);
+
+        let (detail_title, detail_lines, detail_scroll) = match self.preview.as_ref() {
+            Some(data) => {
+                let lines = if state.settings.syntax_highlight {
+                    data.lines.clone()
+                } else {
+                    colorize_diff_basic(&data.content)
+                };
+                (data.title.clone(), lines, data.scroll_diff)
+            }
+            None => (
+                "Details".to_string(),
+                vec![Line::from(Span::raw("No details available."))],
+                0,
+            ),
+        };
+        let mut detail = Paragraph::new(detail_lines)
+            .block(Block::default().title(detail_title).borders(Borders::ALL))
+            .scroll((detail_scroll, 0));
+        if state.settings.wrap_lines {
+            detail = detail.wrap(ratatui::widgets::Wrap { trim: false });
+        }
+        f.render_widget(detail, body_chunks[1]);
     }
     fn on_event(&mut self, ev: &Event, state: &mut AppState) -> Transition<AppState> {
         if let Event::Key(key) = ev {
@@ -377,6 +455,11 @@ impl View<AppState> for ListView {
                 KeyCode::Char('q') => return Transition::Quit,
                 KeyCode::Enter => {
                     if let (Some(repo), Some(commit)) = (state.repo.as_ref(), state.commits.get(self.idx)) {
+                        if self.preview_id.as_deref() == Some(commit.full_id.as_str()) {
+                            if let Some(data) = self.preview.clone() {
+                                return Transition::Push(Box::new(DiffView { data }));
+                            }
+                        }
                         if let Ok(oid) = oid_from_str(repo, &commit.full_id) {
                             if let Ok(text) = commit_diff_text(repo, oid) {
                                 let title = format!("{} {}", commit.id, commit.summary);
